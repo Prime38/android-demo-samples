@@ -12,15 +12,23 @@ import android.util.Log;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
+import android.widget.Toast;
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContract;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import android.os.Bundle;
 import androidx.core.app.ActivityCompat;
 import com.ammarptn.gdriverest.DriveServiceHelper;
+import com.ammarptn.gdriverest.GoogleDriveFileHolder;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.api.Scope;
 import com.google.android.gms.drive.Drive;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
@@ -28,6 +36,7 @@ import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.drive.DriveScopes;
+import com.google.gson.Gson;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -35,7 +44,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
-  Button startbtn, stopBtn;
+  Button startbtn, stopBtn,sendBtn;
   private String recordPermission = Manifest.permission.RECORD_AUDIO;
   private int PERMISSION_CODE = 21;
   private MediaRecorder mediaRecorder;
@@ -54,8 +63,29 @@ public class MainActivity extends AppCompatActivity {
     setContentView(R.layout.activity_main);
     startbtn= findViewById(R.id.startBtn);
     stopBtn=findViewById(R.id.stopBtn);
+    sendBtn=findViewById(R.id.send);
 
     startbtn.setOnClickListener(new OnClickListener() {
+      @Override
+      public void onClick(View v) {
+        if(!isRecording) {
+          //Check permission to record audio
+          if(checkPermissions()) {
+            //Start Recording
+            startRecording();
+
+            // Change button image and set Recording state to false
+//            recordBtn.setImageDrawable(getResources().getDrawable(R.drawable.record_btn_recording, null));
+            isRecording = true;
+            Toast.makeText(MainActivity.this, "Recording started", Toast.LENGTH_SHORT).show();
+          }
+        } else{
+          Toast.makeText(MainActivity.this, "Recording is already started", Toast.LENGTH_SHORT).show();
+        }
+      }
+    });
+
+    stopBtn.setOnClickListener(new OnClickListener() {
       @Override
       public void onClick(View v) {
         if(isRecording) {
@@ -65,25 +95,21 @@ public class MainActivity extends AppCompatActivity {
           // Change button image and set Recording state to false
 //          recordBtn.setImageDrawable(getResources().getDrawable(R.drawable.record_btn_stopped, null));
           isRecording = false;
-        } else {
-          //Check permission to record audio
-          if(checkPermissions()) {
-            //Start Recording
-            startRecording();
-
-            // Change button image and set Recording state to false
-//            recordBtn.setImageDrawable(getResources().getDrawable(R.drawable.record_btn_recording, null));
-            isRecording = true;
-          }
+          Toast.makeText(MainActivity.this, "Recording stopped", Toast.LENGTH_SHORT).show();
+        } else{
+          Toast.makeText(MainActivity.this, "Recoding is already stopped", Toast.LENGTH_SHORT).show();
         }
-
       }
     });
 
-    stopBtn.setOnClickListener(new OnClickListener() {
+    sendBtn.setOnClickListener(new OnClickListener() {
       @Override
       public void onClick(View v) {
-
+        if(!isRecording){
+          sendToDrive();
+        } else{
+          Toast.makeText(MainActivity.this, "Recording is going on. Stop recording before sending", Toast.LENGTH_SHORT).show();
+        }
       }
     });
 
@@ -152,7 +178,25 @@ public class MainActivity extends AppCompatActivity {
      allFiles = directory.listFiles();
      for (File file:allFiles
      ) {
+
        Log.d(TAG, "sendToDrive: "+file.getName());
+       if (mDriveServiceHelper == null) {
+         return;
+       }
+       mDriveServiceHelper.uploadFile(file, "video/3gpp", null)
+           .addOnSuccessListener(new OnSuccessListener<GoogleDriveFileHolder>() {
+             @Override
+             public void onSuccess(GoogleDriveFileHolder googleDriveFileHolder) {
+               Gson gson = new Gson();
+               Log.d(TAG, "onSuccess: " + gson.toJson(googleDriveFileHolder));
+             }
+           })
+           .addOnFailureListener(new OnFailureListener() {
+             @Override
+             public void onFailure(@NonNull Exception e) {
+               Log.d(TAG, "onFailure: " + e.getMessage());
+             }
+           });
      }
    }
 
@@ -180,15 +224,28 @@ public class MainActivity extends AppCompatActivity {
      }
    }
   private void signIn() {
-
     mGoogleSignInClient = buildGoogleSignInClient();
+//    ActivityResultLauncher<Intent> someActivityResultLauncher=registerForActivityResult(
+//        new ActivityResultContracts.StartActivityForResult(),
+//        new ActivityResultCallback<ActivityResult>() {
+//          @Override
+//          public void onActivityResult(ActivityResult result) {
+//            if(result.getResultCode()==Activity.RESULT_OK){
+//              Intent data =result.getData();
+//
+//          }
+//        }
+//    });
+//
+//    Intent intent=new Intent(this,)
+
     startActivityForResult(mGoogleSignInClient.getSignInIntent(), REQUEST_CODE_SIGN_IN);
   }
 
   private GoogleSignInClient buildGoogleSignInClient() {
     GoogleSignInOptions signInOptions =
         new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestScopes(Drive.SCOPE_FILE)
+            .requestScopes(new Scope(DriveScopes.DRIVE_FILE))
             .requestEmail()
             .build();
     return GoogleSignIn.getClient(getApplicationContext(), signInOptions);
@@ -207,10 +264,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     super.onActivityResult(requestCode, resultCode, resultData);
-  }
-
-  public void test() {
-    System.out.println("test");
   }
 
   private void handleSignInResult(Intent result) {
